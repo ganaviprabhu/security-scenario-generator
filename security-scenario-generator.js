@@ -9,14 +9,23 @@
  * Usage:
  *   node security-scenario-generator.js <path-to-requirements.txt>
  *
- * Output (every run):
- *   - security-test-report.html   <- styled, human-readable report (open in a browser)
- *   - security-test-report.md     <- plain markdown version (same data)
+ * Output:
+ *   - reports/<source-name>_<timestamp>.html  <- styled, human-readable report
+ *   - reports/<source-name>_<timestamp>.md    <- plain markdown version (same data)
  *   - a short summary printed to the console
+ *
+ * Change detection:
+ *   Each source document's content is hashed. If you run the script again on
+ *   a document that hasn't changed since its last report, no new report is
+ *   written - the script just points you back at the existing one. This
+ *   keeps reports/ from filling up with identical reports for the same
+ *   unchanged file. Edit the document (even by one character) and it will
+ *   generate a fresh report again.
  */
 
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 // ---------------------------------------------------------------------------
 // 1. FIXED SECURITY CATEGORY TAXONOMY
@@ -414,6 +423,31 @@ ${sectionsHtml}
 //     added so nothing already on disk is ever overwritten.
 // ---------------------------------------------------------------------------
 const REPORTS_DIR = "reports";
+const INDEX_PATH = path.join(REPORTS_DIR, ".report-index.json");
+
+// ---------------------------------------------------------------------------
+// CHANGE DETECTION
+//     Tracks the content hash of the last report generated for each source
+//     document (by filename). If the same document is run again unchanged,
+//     we skip writing a new report and just point back at the last one.
+// ---------------------------------------------------------------------------
+function hashContent(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function loadIndex() {
+  if (!fs.existsSync(INDEX_PATH)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(INDEX_PATH, "utf-8"));
+  } catch {
+    // Corrupt or unreadable index - start fresh rather than crash the run.
+    return {};
+  }
+}
+
+function saveIndex(index) {
+  fs.writeFileSync(INDEX_PATH, JSON.stringify(index, null, 2), "utf-8");
+}
 
 function slugify(name) {
   return name
@@ -458,17 +492,31 @@ function main() {
 
   const resolvedPath = path.resolve(inputPath);
   const rawText = fs.readFileSync(resolvedPath, "utf-8");
-  const requirements = parseRequirements(rawText);
-  const scenarios = generateScenarios(requirements);
-  const coverage = buildCoverageSummary(scenarios);
-
   const sourceFileName = path.basename(resolvedPath);
-  const mdReport = buildMarkdownReport(scenarios, coverage);
-  const htmlReport = buildHtmlReport(scenarios, coverage, sourceFileName);
 
   if (!fs.existsSync(REPORTS_DIR)) {
     fs.mkdirSync(REPORTS_DIR, { recursive: true });
   }
+
+  // --- Change detection: skip regenerating if this exact content was
+  //     already turned into a report for this source filename. ---
+  const contentHash = hashContent(rawText);
+  const index = loadIndex();
+  const lastRun = index[sourceFileName];
+
+  if (lastRun && lastRun.hash === contentHash && fs.existsSync(lastRun.htmlPath)) {
+    console.log(`No changes detected in "${sourceFileName}" since the last report - skipping regeneration.`);
+    console.log(`- ${lastRun.mdPath}   (existing, unchanged)`);
+    console.log(`- ${lastRun.htmlPath} (existing, unchanged)`);
+    return;
+  }
+
+  const requirements = parseRequirements(rawText);
+  const scenarios = generateScenarios(requirements);
+  const coverage = buildCoverageSummary(scenarios);
+
+  const mdReport = buildMarkdownReport(scenarios, coverage);
+  const htmlReport = buildHtmlReport(scenarios, coverage, sourceFileName);
 
   const outputBaseName = buildOutputBaseName(sourceFileName);
   const mdPath = path.join(REPORTS_DIR, `${outputBaseName}.md`);
@@ -476,6 +524,9 @@ function main() {
 
   fs.writeFileSync(mdPath, mdReport, "utf-8");
   fs.writeFileSync(htmlPath, htmlReport, "utf-8");
+
+  index[sourceFileName] = { hash: contentHash, mdPath, htmlPath, generatedAt: new Date().toISOString() };
+  saveIndex(index);
 
   const coveredCount = coverage.filter((c) => c.covered).length;
   console.log(`Generated ${scenarios.length} scenario(s) across ${coveredCount}/${CATEGORIES.length} categories.`);
