@@ -9,9 +9,10 @@
  * Usage:
  *   node security-scenario-generator.js <path-to-requirements.txt>
  *
- * Output:
- *   - Prints a Markdown report to the console
- *   - Also saves the same report to "security-test-report.md"
+ * Output (every run):
+ *   - security-test-report.html   <- styled, human-readable report (open in a browser)
+ *   - security-test-report.md     <- plain markdown version (same data)
+ *   - a short summary printed to the console
  */
 
 const fs = require("fs");
@@ -86,7 +87,23 @@ const RATIONALE_TEMPLATES = {
 };
 
 // ---------------------------------------------------------------------------
-// 5. PARSE THE REQUIREMENTS DOCUMENT
+// 5. SUGGESTED MANUAL SCENARIO FOR AN UNCOVERED CATEGORY
+//    Shown in the report so a category with zero matches isn't just a
+//    silent gap - it comes with a starting point for a manual test.
+// ---------------------------------------------------------------------------
+const GAP_SUGGESTIONS = {
+  "Authentication": "Manually verify login lockout, password reset flow, and multi-factor enforcement, since no requirement line triggered this category.",
+  "Authorization / Access Control": "Manually verify that role checks are enforced server-side, not just hidden in the UI.",
+  "Input Validation / Injection": "Manually test every user-facing input field for injection and oversized/malformed payloads.",
+  "Data Protection": "Manually confirm what counts as sensitive data in this system and verify it's encrypted at rest and in transit.",
+  "Session Management": "Manually verify session expiry, logout invalidation, and token reuse across the application.",
+  "Error Handling & Logging": "Manually trigger error conditions across the app and check responses/logs for leaked internal details.",
+  "API / Interface Security": "Manually check all API endpoints for rate limiting, auth enforcement, and input validation.",
+  "Configuration & Deployment Security": "Check that API keys, database connection strings, and other secrets aren't stored in plaintext in config files, environment dumps, or client-accessible bundles.",
+};
+
+// ---------------------------------------------------------------------------
+// 6. PARSE THE REQUIREMENTS DOCUMENT
 // ---------------------------------------------------------------------------
 function parseRequirements(rawText) {
   return rawText
@@ -96,7 +113,7 @@ function parseRequirements(rawText) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. DETECT MATCHING CATEGORIES FOR A SINGLE REQUIREMENT LINE
+// 7. DETECT MATCHING CATEGORIES FOR A SINGLE REQUIREMENT LINE
 // ---------------------------------------------------------------------------
 function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -119,7 +136,7 @@ function detectCategories(requirementLine) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. MAIN GENERATION LOGIC
+// 8. MAIN GENERATION LOGIC
 //    Ensures 5-8 scenarios, prioritising coverage across DIFFERENT categories
 //    before adding a second scenario to any single category.
 // ---------------------------------------------------------------------------
@@ -174,7 +191,7 @@ function generateScenarios(requirements, minScenarios = 5, maxScenarios = 8) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. COVERAGE SUMMARY
+// 9. COVERAGE SUMMARY
 // ---------------------------------------------------------------------------
 function buildCoverageSummary(scenarios) {
   const counts = {};
@@ -189,7 +206,7 @@ function buildCoverageSummary(scenarios) {
 }
 
 // ---------------------------------------------------------------------------
-// 9. REPORT FORMATTING (Markdown)
+// 10. MARKDOWN REPORT (kept for scripting/diffing/plain-text use)
 // ---------------------------------------------------------------------------
 function buildMarkdownReport(scenarios, coverage) {
   let md = "# Security Test Scenario Report\n\n";
@@ -215,7 +232,180 @@ function buildMarkdownReport(scenarios, coverage) {
 }
 
 // ---------------------------------------------------------------------------
-// 10. ENTRY POINT
+// 11. HTML REPORT (the human-readable version)
+//     Groups scenarios by category, quotes the source requirement, and
+//     calls out any category with zero matches as an explicit gap with a
+//     suggested manual scenario - built fresh from whatever CATEGORIES /
+//     scenarios / coverage are passed in, so it always reflects the current
+//     input document rather than any fixed example.
+// ---------------------------------------------------------------------------
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildHtmlReport(scenarios, coverage, sourceFileName) {
+  const coveredCount = coverage.filter((c) => c.covered).length;
+  const total = CATEGORIES.length;
+  const generatedAt = new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC";
+
+  const ticksHtml = coverage
+    .map(
+      (c) =>
+        `<div class="tick${c.covered ? " filled" : ""}" title="${escapeHtml(c.category)}${
+          c.covered ? "" : " — not covered"
+        }"></div>`
+    )
+    .join("\n          ");
+
+  // Group scenarios by category, preserving CATEGORIES order
+  const scenariosByCategory = {};
+  for (const cat of CATEGORIES) scenariosByCategory[cat] = [];
+  for (const s of scenarios) scenariosByCategory[cat_or(s)].push(s);
+  function cat_or(s) { return s.category; }
+
+  const sectionsHtml = CATEGORIES.map((cat) => {
+    const items = scenariosByCategory[cat];
+    if (items.length > 0) {
+      const cardsHtml = items
+        .map(
+          (s) => `
+    <div class="scenario-card">
+      <p class="req-quote">&quot;${escapeHtml(s.requirement)}&quot;</p>
+      <p class="field-label">Test scenario</p>
+      <p class="scenario-text">${escapeHtml(s.scenario.replace(/, based on:.*$/, ""))}</p>
+      <p class="rationale">${escapeHtml(s.rationale)}</p>
+    </div>`
+        )
+        .join("\n");
+
+      return `
+  <section class="category-block">
+    <div class="cat-heading">
+      <h2>${escapeHtml(cat)}</h2>
+      <span class="cat-count">${items.length} scenario${items.length > 1 ? "s" : ""}</span>
+    </div>${cardsHtml}
+  </section>`;
+    }
+
+    // Uncovered category -> gap callout instead of an empty section
+    const suggestion = GAP_SUGGESTIONS[cat] || "No requirement line matched this category. Add manual test coverage for it.";
+    return `
+  <section class="gap-block">
+    <div class="gap-card">
+      <h2>${escapeHtml(cat)} — no matching requirement</h2>
+      <p>Nothing in the requirements document mentioned this category, so the generator had no line to build a scenario from. That doesn't mean the risk isn't there — it means the requirements doc is silent on it.</p>
+      <p class="gap-suggestion">Suggested manual scenario: ${escapeHtml(suggestion)}</p>
+    </div>
+  </section>`;
+  }).join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Security Test Scenario Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F2EFE7;
+    --surface: #FFFFFF;
+    --ink: #1C2B36;
+    --muted: #5C6B75;
+    --accent-amber: #B5651D;
+    --border: #DCD5C2;
+    --tick-fill: #3E6259;
+    --tick-empty: #DCD5C2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #131E27; --surface: #1B2831; --ink: #EAE4D6; --muted: #93A3AC;
+      --accent-amber: #E0A458; --border: #2C3C46; --tick-fill: #82BBA6; --tick-empty: #2C3C46;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #131E27; --surface: #1B2831; --ink: #EAE4D6; --muted: #93A3AC;
+    --accent-amber: #E0A458; --border: #2C3C46; --tick-fill: #82BBA6; --tick-empty: #2C3C46;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'IBM Plex Sans', system-ui, sans-serif; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 760px; margin: 0 auto; padding: 64px 24px 96px; }
+  header.report-head { margin-bottom: 48px; }
+  .file-line { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--muted); margin: 0 0 18px; word-break: break-all; }
+  h1 { font-family: 'Spectral', Georgia, serif; font-weight: 600; font-size: 40px; line-height: 1.15; margin: 0 0 10px; letter-spacing: -0.01em; }
+  .dek { font-size: 16px; color: var(--muted); max-width: 60ch; margin: 0; }
+  .scoreboard { display: flex; align-items: center; gap: 28px; margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .score-num { font-family: 'Spectral', serif; font-size: 56px; font-weight: 600; line-height: 1; white-space: nowrap; }
+  .score-num span { font-size: 22px; color: var(--muted); font-weight: 400; }
+  .score-detail { flex: 1; min-width: 200px; }
+  .score-label { font-size: 14px; color: var(--muted); margin: 0 0 10px; }
+  .ticks { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tick { width: 28px; height: 10px; border-radius: 2px; background: var(--tick-empty); position: relative; cursor: default; }
+  .tick.filled { background: var(--tick-fill); }
+  .tick[title]:hover::after { content: attr(title); position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); font-size: 11px; padding: 4px 8px; border-radius: 4px; white-space: nowrap; z-index: 2; }
+  section.category-block { margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--border); }
+  .cat-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+  .cat-heading h2 { font-family: 'Spectral', serif; font-weight: 600; font-size: 21px; margin: 0; }
+  .cat-count { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .scenario-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 20px 22px; margin-bottom: 14px; }
+  .scenario-card:last-child { margin-bottom: 0; }
+  .req-quote { font-family: 'Spectral', serif; font-style: italic; font-size: 15px; color: var(--muted); margin: 0 0 14px; padding-left: 14px; border-left: 2px solid var(--border); }
+  .field-label { font-size: 11px; color: var(--muted); margin: 0 0 4px; }
+  .scenario-text { font-size: 15px; margin: 0 0 16px; }
+  .rationale { font-size: 13.5px; color: var(--muted); margin: 0; }
+  .gap-block { margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--border); }
+  .gap-card { border: 1px dashed var(--accent-amber); border-radius: 6px; padding: 20px 22px; background: color-mix(in srgb, var(--accent-amber) 8%, var(--surface)); }
+  .gap-card h2 { font-family: 'Spectral', serif; font-weight: 600; font-size: 21px; margin: 0 0 10px; color: var(--accent-amber); }
+  .gap-card p { margin: 0 0 12px; font-size: 15px; }
+  .gap-card p:last-child { margin-bottom: 0; }
+  .gap-suggestion { font-size: 13.5px; color: var(--muted); }
+  footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--muted); }
+  @media (max-width: 520px) {
+    h1 { font-size: 30px; }
+    .scoreboard { flex-direction: column; align-items: flex-start; gap: 16px; }
+    .score-num { font-size: 44px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="report-head">
+    <p class="file-line">source: ${escapeHtml(sourceFileName)} — generated ${escapeHtml(generatedAt)}</p>
+    <h1>Security Test Scenario Report</h1>
+    <p class="dek">Test scenarios mapped from the requirements document to a fixed set of ${total} security categories, so gaps in coverage are visible at a glance.</p>
+
+    <div class="scoreboard">
+      <div class="score-num">${coveredCount}<span>/${total}</span></div>
+      <div class="score-detail">
+        <p class="score-label">Categories covered</p>
+        <div class="ticks">
+          ${ticksHtml}
+        </div>
+      </div>
+    </div>
+  </header>
+${sectionsHtml}
+
+  <footer>
+    ${coveredCount} of ${total} categories covered from the supplied requirements. Uncovered categories are flagged above with a suggested manual scenario — add a matching line to the requirements document to have the generator pick it up automatically next time.
+  </footer>
+
+</div>
+</body>
+</html>
+`;
+}
+
+// ---------------------------------------------------------------------------
+// 12. ENTRY POINT
 // ---------------------------------------------------------------------------
 function main() {
   const inputPath = process.argv[2];
@@ -224,15 +414,22 @@ function main() {
     process.exit(1);
   }
 
-  const rawText = fs.readFileSync(path.resolve(inputPath), "utf-8");
+  const resolvedPath = path.resolve(inputPath);
+  const rawText = fs.readFileSync(resolvedPath, "utf-8");
   const requirements = parseRequirements(rawText);
   const scenarios = generateScenarios(requirements);
   const coverage = buildCoverageSummary(scenarios);
-  const report = buildMarkdownReport(scenarios, coverage);
 
-  console.log(report);
-  fs.writeFileSync("security-test-report.md", report, "utf-8");
-  console.log('\n(Report also saved to "security-test-report.md")');
+  const mdReport = buildMarkdownReport(scenarios, coverage);
+  const htmlReport = buildHtmlReport(scenarios, coverage, path.basename(resolvedPath));
+
+  fs.writeFileSync("security-test-report.md", mdReport, "utf-8");
+  fs.writeFileSync("security-test-report.html", htmlReport, "utf-8");
+
+  const coveredCount = coverage.filter((c) => c.covered).length;
+  console.log(`Generated ${scenarios.length} scenario(s) across ${coveredCount}/${CATEGORIES.length} categories.`);
+  console.log('- security-test-report.md   (plain text)');
+  console.log('- security-test-report.html (open this one in a browser)');
 }
 
 main();
