@@ -405,7 +405,49 @@ ${sectionsHtml}
 }
 
 // ---------------------------------------------------------------------------
-// 12. ENTRY POINT
+// 12. OUTPUT FILE NAMING
+//     Every run gets its own report files instead of overwriting the last
+//     one. The name is built from the source document's name plus a
+//     timestamp, so re-running against the same document twice still
+//     produces two distinct reports. If somehow both name AND timestamp
+//     collide (e.g. two runs in the same second), a numeric suffix is
+//     added so nothing already on disk is ever overwritten.
+// ---------------------------------------------------------------------------
+const REPORTS_DIR = "reports";
+
+function slugify(name) {
+  return name
+    .toLowerCase()
+    .replace(/\.[^/.]+$/, "")     // strip file extension
+    .replace(/[^a-z0-9]+/g, "-")  // non-alphanumeric -> hyphen
+    .replace(/^-+|-+$/g, "");     // trim leading/trailing hyphens
+}
+
+function timestampStr(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`
+  );
+}
+
+function buildOutputBaseName(sourceFileName) {
+  const base = `${slugify(sourceFileName)}_${timestampStr()}`;
+  let candidate = base;
+  let counter = 2;
+  // Guard against collisions (two runs within the same second, etc.)
+  while (
+    fs.existsSync(path.join(REPORTS_DIR, `${candidate}.html`)) ||
+    fs.existsSync(path.join(REPORTS_DIR, `${candidate}.md`))
+  ) {
+    candidate = `${base}-${counter}`;
+    counter++;
+  }
+  return candidate;
+}
+
+// ---------------------------------------------------------------------------
+// 13. ENTRY POINT
 // ---------------------------------------------------------------------------
 function main() {
   const inputPath = process.argv[2];
@@ -420,16 +462,25 @@ function main() {
   const scenarios = generateScenarios(requirements);
   const coverage = buildCoverageSummary(scenarios);
 
+  const sourceFileName = path.basename(resolvedPath);
   const mdReport = buildMarkdownReport(scenarios, coverage);
-  const htmlReport = buildHtmlReport(scenarios, coverage, path.basename(resolvedPath));
+  const htmlReport = buildHtmlReport(scenarios, coverage, sourceFileName);
 
-  fs.writeFileSync("security-test-report.md", mdReport, "utf-8");
-  fs.writeFileSync("security-test-report.html", htmlReport, "utf-8");
+  if (!fs.existsSync(REPORTS_DIR)) {
+    fs.mkdirSync(REPORTS_DIR, { recursive: true });
+  }
+
+  const outputBaseName = buildOutputBaseName(sourceFileName);
+  const mdPath = path.join(REPORTS_DIR, `${outputBaseName}.md`);
+  const htmlPath = path.join(REPORTS_DIR, `${outputBaseName}.html`);
+
+  fs.writeFileSync(mdPath, mdReport, "utf-8");
+  fs.writeFileSync(htmlPath, htmlReport, "utf-8");
 
   const coveredCount = coverage.filter((c) => c.covered).length;
   console.log(`Generated ${scenarios.length} scenario(s) across ${coveredCount}/${CATEGORIES.length} categories.`);
-  console.log('- security-test-report.md   (plain text)');
-  console.log('- security-test-report.html (open this one in a browser)');
+  console.log(`- ${mdPath}   (plain text)`);
+  console.log(`- ${htmlPath} (open this one in a browser)`);
 }
 
 main();
