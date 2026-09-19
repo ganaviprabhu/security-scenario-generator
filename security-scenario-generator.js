@@ -363,6 +363,17 @@ function buildHtmlReport(scenarios, coverage, sourceFileName) {
     )
     .join("\n          ");
 
+  const coverageRowsHtml = coverage
+    .map(
+      (c) => `
+        <tr>
+          <td>${escapeHtml(c.category)}</td>
+          <td class="${c.covered ? "cov-yes" : "cov-no"}">${c.covered ? "Yes" : "No"}</td>
+          <td>${c.count}</td>
+        </tr>`
+    )
+    .join("");
+
   // Group scenarios by category, preserving CATEGORIES order
   const scenariosByCategory = {};
   for (const cat of CATEGORIES) scenariosByCategory[cat] = [];
@@ -460,6 +471,13 @@ function buildHtmlReport(scenarios, coverage, sourceFileName) {
   .tick.filled { background: var(--tick-fill); }
   .tick[title]:hover::after { content: attr(title); position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); font-size: 11px; padding: 4px 8px; border-radius: 4px; white-space: nowrap; z-index: 2; }
   section.category-block { margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--border); }
+  .coverage-summary { margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--border); }
+  .coverage-table { width: 100%; border-collapse: collapse; font-size: 14.5px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  .coverage-table th, .coverage-table td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .coverage-table th { font-family: 'IBM Plex Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); font-weight: 500; }
+  .coverage-table tr:last-child td { border-bottom: none; }
+  .coverage-table td.cov-yes { color: var(--tick-fill); font-weight: 600; }
+  .coverage-table td.cov-no { color: var(--accent-amber); font-weight: 600; }
   .cat-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
   .cat-heading h2 { font-family: 'Spectral', serif; font-weight: 600; font-size: 21px; margin: 0; }
   .cat-count { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
@@ -507,6 +525,19 @@ function buildHtmlReport(scenarios, coverage, sourceFileName) {
       </div>
     </div>
   </header>
+
+  <section class="coverage-summary">
+    <div class="cat-heading">
+      <h2>Coverage Summary</h2>
+    </div>
+    <table class="coverage-table">
+      <thead>
+        <tr><th>Category</th><th>Covered?</th><th># Scenarios</th></tr>
+      </thead>
+      <tbody>${coverageRowsHtml}
+      </tbody>
+    </table>
+  </section>
 ${sectionsHtml}
 
   <footer>
