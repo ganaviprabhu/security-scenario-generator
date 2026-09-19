@@ -1,0 +1,4 @@
+# Generated reports and the change-detection index - these are build
+# output, not source. Regenerate them by running the script.
+reports/
+node_modules/
