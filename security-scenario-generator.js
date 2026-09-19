@@ -59,30 +59,116 @@ const KEYWORD_RULES = [
 ];
 
 // ---------------------------------------------------------------------------
-// 3. SCENARIO TEMPLATES PER CATEGORY
-//    Each template turns a matched requirement into a concrete test.
+// 3. CATEGORY PREFIXES (for Test Case IDs, e.g. AUTH-01, INPUT-02)
 // ---------------------------------------------------------------------------
-const SCENARIO_TEMPLATES = {
-  "Authentication": (req) =>
-    `Attempt to access the account/dashboard without valid login credentials, and attempt repeated failed logins to check for lockout, based on: "${req}"`,
-  "Authorization / Access Control": (req) =>
-    `Attempt to access admin-only functionality/data using a non-admin (regular customer) account, based on: "${req}"`,
-  "Input Validation / Injection": (req) =>
-    `Submit malformed, oversized, or malicious input (e.g. script tags, SQL-like strings, disguised file types) to the relevant field, based on: "${req}"`,
-  "Data Protection": (req) =>
-    `Verify that sensitive data referenced here is encrypted in transit/at rest and is not exposed in responses, URLs, or logs, based on: "${req}"`,
-  "Session Management": (req) =>
-    `Verify that the session token expires correctly, cannot be reused after logout, and is invalidated after the stated timeout, based on: "${req}"`,
-  "Error Handling & Logging": (req) =>
-    `Trigger an invalid/erroneous input scenario and verify the error message does not leak internal system details, based on: "${req}"`,
-  "API / Interface Security": (req) =>
-    `Send an excessive number of rapid requests to the related endpoint to verify rate limiting / abuse protection is enforced, based on: "${req}"`,
-  "Configuration & Deployment Security": (req) =>
-    `Verify that sensitive configuration values (keys, connection strings) are not stored in plaintext or exposed in accessible files, based on: "${req}"`,
+const CATEGORY_PREFIXES = {
+  "Authentication": "AUTH",
+  "Authorization / Access Control": "AUTHZ",
+  "Input Validation / Injection": "INPUT",
+  "Data Protection": "DATA",
+  "Session Management": "SESS",
+  "Error Handling & Logging": "ERR",
+  "API / Interface Security": "API",
+  "Configuration & Deployment Security": "CONFIG",
 };
 
 // ---------------------------------------------------------------------------
-// 4. ONE-LINE RATIONALE TEMPLATES PER CATEGORY
+// 4. SCENARIO TEMPLATES PER CATEGORY
+//    Each category defines a short title, a numbered list of test steps,
+//    and the expected (secure) result - the building blocks of a proper
+//    test case: Test Case ID - Category - Test Scenario - Steps - Expected
+//    Result. All templates take the matched requirement text so the case
+//    stays traceable back to the line that triggered it.
+// ---------------------------------------------------------------------------
+const SCENARIO_TEMPLATES = {
+  "Authentication": {
+    title: () => "Verify login authentication cannot be bypassed or brute-forced",
+    steps: (req) => [
+      "Navigate to the login page covered by this requirement.",
+      "Attempt to log in with incorrect credentials.",
+      "Repeat the failed login attempt several times in quick succession.",
+      "Attempt to open the account/dashboard directly without logging in.",
+    ],
+    expectedResult: () =>
+      "Invalid credentials are rejected on every attempt; repeated failures trigger a lockout or throttling response; the account/dashboard is not reachable without a valid, successful login.",
+  },
+  "Authorization / Access Control": {
+    title: () => "Verify non-admin accounts cannot reach admin-only functionality",
+    steps: (req) => [
+      "Log in using a regular (non-admin) account.",
+      "Attempt to navigate directly to the admin-only page or feature URL.",
+      "If an API backs the feature, attempt to call it directly with the non-admin account's session.",
+    ],
+    expectedResult: () =>
+      "The non-admin account is denied access (e.g. 403/redirect) to the admin-only page, feature, and any underlying API - no admin data or controls are exposed.",
+  },
+  "Input Validation / Injection": {
+    title: () => "Verify the input field rejects malicious or malformed data",
+    steps: (req) => [
+      "Locate the input field this requirement refers to.",
+      "Submit a script/HTML payload (e.g. <script>alert(1)</script>) into the field.",
+      "Submit a SQL-like string (e.g. ' OR '1'='1) into the field.",
+      "Submit an oversized value and, if applicable, a disguised file type.",
+    ],
+    expectedResult: () =>
+      "Every malicious or malformed input is rejected or safely sanitized. No script executes, no database error surfaces, and the application does not misbehave or crash.",
+  },
+  "Data Protection": {
+    title: () => "Verify sensitive data is protected in transit, at rest, and in output",
+    steps: (req) => [
+      "Identify the sensitive data referenced by this requirement.",
+      "Inspect network traffic while submitting/retrieving that data to confirm it is sent over HTTPS/TLS.",
+      "Inspect the database/storage layer to confirm the data is encrypted at rest.",
+      "Check API responses, URLs, and application logs for the same data appearing in plaintext.",
+    ],
+    expectedResult: () =>
+      "The sensitive data is encrypted in transit and at rest, and never appears unmasked in responses, URLs, or logs.",
+  },
+  "Session Management": {
+    title: () => "Verify the session expires and cannot be reused after logout",
+    steps: (req) => [
+      "Log in and note the active session/token.",
+      "Remain idle until the stated timeout period has elapsed.",
+      "Attempt to perform an authenticated action using the now-idle session.",
+      "Log out, then attempt to reuse the same session/token for a request.",
+    ],
+    expectedResult: () =>
+      "The session is invalidated once the timeout is reached, and the logged-out token is rejected on reuse - no action succeeds with an expired or logged-out session.",
+  },
+  "Error Handling & Logging": {
+    title: () => "Verify error responses don't leak internal system details",
+    steps: (req) => [
+      "Trigger the erroneous/invalid condition described by this requirement (e.g. wrong password, bad input).",
+      "Record the exact error message shown to the end user.",
+      "Cross-check the same event in the application/server logs.",
+    ],
+    expectedResult: () =>
+      "The user-facing error message is generic and free of stack traces, internal paths, or system details; any sensitive diagnostic detail stays server-side in the logs only.",
+  },
+  "API / Interface Security": {
+    title: () => "Verify the API endpoint enforces rate limiting and access control",
+    steps: (req) => [
+      "Identify the API endpoint this requirement refers to.",
+      "Send a burst of rapid, repeated requests to the endpoint.",
+      "Call the endpoint without a valid authentication token or with an unauthorized account.",
+    ],
+    expectedResult: () =>
+      "Excessive requests are throttled or rate-limited; unauthenticated or unauthorized calls are rejected with an appropriate error rather than returning data.",
+  },
+  "Configuration & Deployment Security": {
+    title: () => "Verify configuration secrets are not stored or exposed in plaintext",
+    steps: (req) => [
+      "Locate the configuration file(s) or environment settings referenced by this requirement.",
+      "Check whether secrets (API keys, connection strings, credentials) are stored in plaintext.",
+      "Check whether the configuration file is reachable via the web server or committed to a public repository.",
+    ],
+    expectedResult: () =>
+      "Secrets are not stored in plaintext, are excluded from version control, and the configuration file is not publicly accessible.",
+  },
+};
+
+// ---------------------------------------------------------------------------
+// 5. ONE-LINE RATIONALE TEMPLATES PER CATEGORY
 // ---------------------------------------------------------------------------
 const RATIONALE_TEMPLATES = {
   "Authentication": () => "This requirement involves user login, so authentication bypass and brute-force protection must be verified.",
@@ -96,7 +182,7 @@ const RATIONALE_TEMPLATES = {
 };
 
 // ---------------------------------------------------------------------------
-// 5. SUGGESTED MANUAL SCENARIO FOR AN UNCOVERED CATEGORY
+// 6. SUGGESTED MANUAL SCENARIO FOR AN UNCOVERED CATEGORY
 //    Shown in the report so a category with zero matches isn't just a
 //    silent gap - it comes with a starting point for a manual test.
 // ---------------------------------------------------------------------------
@@ -162,17 +248,28 @@ function generateScenarios(requirements, minScenarios = 5, maxScenarios = 8) {
   }
 
   const scenarios = [];
+  const categoryCounters = {};
+  for (const cat of CATEGORIES) categoryCounters[cat] = 0;
+
+  function buildScenario(cat, req) {
+    categoryCounters[cat] += 1;
+    const template = SCENARIO_TEMPLATES[cat];
+    const idNum = String(categoryCounters[cat]).padStart(2, "0");
+    return {
+      testCaseId: `${CATEGORY_PREFIXES[cat]}-${idNum}`,
+      category: cat,
+      requirement: req,
+      title: template.title(req),
+      steps: template.steps(req),
+      expectedResult: template.expectedResult(req),
+      rationale: RATIONALE_TEMPLATES[cat](),
+    };
+  }
 
   // Pass 1: one scenario per category that has at least one hit (coverage first)
   for (const cat of CATEGORIES) {
     if (categoryHits[cat].length > 0 && scenarios.length < maxScenarios) {
-      const req = categoryHits[cat][0];
-      scenarios.push({
-        category: cat,
-        requirement: req,
-        scenario: SCENARIO_TEMPLATES[cat](req),
-        rationale: RATIONALE_TEMPLATES[cat](),
-      });
+      scenarios.push(buildScenario(cat, categoryHits[cat][0]));
     }
   }
 
@@ -182,13 +279,7 @@ function generateScenarios(requirements, minScenarios = 5, maxScenarios = 8) {
     let addedAny = false;
     for (const cat of CATEGORIES) {
       if (categoryHits[cat].length > i && scenarios.length < maxScenarios) {
-        const req = categoryHits[cat][i];
-        scenarios.push({
-          category: cat,
-          requirement: req,
-          scenario: SCENARIO_TEMPLATES[cat](req),
-          rationale: RATIONALE_TEMPLATES[cat](),
-        });
+        scenarios.push(buildScenario(cat, categoryHits[cat][i]));
         addedAny = true;
       }
     }
@@ -220,11 +311,12 @@ function buildCoverageSummary(scenarios) {
 function buildMarkdownReport(scenarios, coverage) {
   let md = "# Security Test Scenario Report\n\n";
 
-  md += "## 1. Security Test Scenarios\n\n";
-  md += "| # | Scenario | Category | Rationale |\n";
-  md += "|---|----------|----------|-----------|\n";
-  scenarios.forEach((s, idx) => {
-    md += `| ${idx + 1} | ${s.scenario} | ${s.category} | ${s.rationale} |\n`;
+  md += "## 1. Security Test Cases\n\n";
+  md += "| Test Case ID | Category | Test Scenario | Steps | Expected Result |\n";
+  md += "|---|---|---|---|---|\n";
+  scenarios.forEach((s) => {
+    const stepsCell = s.steps.map((step, i) => `${i + 1}. ${step}`).join("<br>");
+    md += `| ${s.testCaseId} | ${s.category} | ${s.title} | ${stepsCell} | ${s.expectedResult} |\n`;
   });
 
   md += "\n## 2. Coverage Summary\n\n";
@@ -284,9 +376,17 @@ function buildHtmlReport(scenarios, coverage, sourceFileName) {
         .map(
           (s) => `
     <div class="scenario-card">
+      <div class="card-top">
+        <span class="tc-id">${escapeHtml(s.testCaseId)}</span>
+        <h3 class="tc-title">${escapeHtml(s.title)}</h3>
+      </div>
       <p class="req-quote">&quot;${escapeHtml(s.requirement)}&quot;</p>
-      <p class="field-label">Test scenario</p>
-      <p class="scenario-text">${escapeHtml(s.scenario.replace(/, based on:.*$/, ""))}</p>
+      <p class="field-label">Steps</p>
+      <ol class="steps-list">
+        ${s.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("\n        ")}
+      </ol>
+      <p class="field-label">Expected result</p>
+      <p class="expected-result">${escapeHtml(s.expectedResult)}</p>
       <p class="rationale">${escapeHtml(s.rationale)}</p>
     </div>`
         )
@@ -365,10 +465,16 @@ function buildHtmlReport(scenarios, coverage, sourceFileName) {
   .cat-count { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); white-space: nowrap; }
   .scenario-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 20px 22px; margin-bottom: 14px; }
   .scenario-card:last-child { margin-bottom: 0; }
-  .req-quote { font-family: 'Spectral', serif; font-style: italic; font-size: 15px; color: var(--muted); margin: 0 0 14px; padding-left: 14px; border-left: 2px solid var(--border); }
-  .field-label { font-size: 11px; color: var(--muted); margin: 0 0 4px; }
-  .scenario-text { font-size: 15px; margin: 0 0 16px; }
-  .rationale { font-size: 13.5px; color: var(--muted); margin: 0; }
+  .card-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tc-id { font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; color: var(--surface); background: var(--tick-fill); padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
+  .tc-title { font-family: 'IBM Plex Sans', sans-serif; font-weight: 600; font-size: 15.5px; margin: 0; }
+  .req-quote { font-family: 'Spectral', serif; font-style: italic; font-size: 14px; color: var(--muted); margin: 0 0 16px; padding-left: 14px; border-left: 2px solid var(--border); }
+  .field-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 6px; }
+  .steps-list { margin: 0 0 16px; padding-left: 20px; font-size: 14.5px; }
+  .steps-list li { margin-bottom: 5px; }
+  .steps-list li:last-child { margin-bottom: 0; }
+  .expected-result { font-size: 14.5px; margin: 0 0 14px; padding: 10px 12px; background: color-mix(in srgb, var(--tick-fill) 10%, var(--surface)); border-left: 2px solid var(--tick-fill); border-radius: 3px; }
+  .rationale { font-size: 12.5px; color: var(--muted); margin: 0; font-style: italic; }
   .gap-block { margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--border); }
   .gap-card { border: 1px dashed var(--accent-amber); border-radius: 6px; padding: 20px 22px; background: color-mix(in srgb, var(--accent-amber) 8%, var(--surface)); }
   .gap-card h2 { font-family: 'Spectral', serif; font-weight: 600; font-size: 21px; margin: 0 0 10px; color: var(--accent-amber); }
