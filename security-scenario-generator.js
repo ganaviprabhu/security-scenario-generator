@@ -45,17 +45,93 @@ const CATEGORIES = [
 
 // ---------------------------------------------------------------------------
 // 2. KEYWORD -> CATEGORY MAPPING
-//    Simple rule-based detection. Add more keywords as you encounter them.
+//    A much wider vocabulary per category than a first pass usually has.
+//    A real requirements author won't know or use this exact wording, so
+//    each category lists many synonyms and phrasings. This list is combined
+//    with stemming + fuzzy matching below (see detectCategories) so close
+//    variants ("signing in", "loging in", "log-in") are still caught even
+//    when they don't literally appear here.
 // ---------------------------------------------------------------------------
 const KEYWORD_RULES = [
-  { keywords: ["log in", "login", "password", "credentials", "sign in"], category: "Authentication" },
-  { keywords: ["admin", "role", "permission", "access to", "only admin"], category: "Authorization / Access Control" },
-  { keywords: ["upload", "file", "input", "search", "filter", "enter"], category: "Input Validation / Injection" },
-  { keywords: ["credit card", "payment", "personal data", "sensitive", "email"], category: "Data Protection" },
-  { keywords: ["session", "token", "logged in", "timeout", "expire"], category: "Session Management" },
-  { keywords: ["error", "invalid", "error message", "logs", "log file", "exception"], category: "Error Handling & Logging" },
-  { keywords: ["api", "endpoint", "returns a list", "request"], category: "API / Interface Security" },
-  { keywords: ["config", "configuration", "connection details", "api key", "default"], category: "Configuration & Deployment Security" },
+  {
+    category: "Authentication",
+    keywords: [
+      "login", "log in", "sign in", "signin", "authenticate", "authentication",
+      "password", "passcode", "pin", "credential", "credentials",
+      "mfa", "multi-factor", "two-factor", "2fa", "otp", "one-time password",
+      "biometric", "fingerprint", "face id", "sso", "single sign-on",
+      "forgot password", "reset password", "lockout", "lock out",
+    ],
+  },
+  {
+    category: "Authorization / Access Control",
+    keywords: [
+      "admin", "administrator", "role", "roles", "permission", "permissions",
+      "privilege", "privileges", "access control", "authorize", "authorization",
+      "restricted", "only staff", "only admin", "staff account", "staff accounts",
+      "manager account", "superuser", "rbac", "entitlement", "entitlements",
+      "unauthorized", "elevated access", "least privilege",
+    ],
+  },
+  {
+    category: "Input Validation / Injection",
+    keywords: [
+      "upload", "file upload", "input", "search", "filter", "enter",
+      "field", "form", "text box", "textbox", "query", "parameter",
+      "submit", "paste", "sql", "sql injection", "injection", "xss",
+      "cross-site scripting", "sanitize", "sanitise", "validate", "validation",
+      "malformed", "special characters",
+    ],
+  },
+  {
+    category: "Data Protection",
+    keywords: [
+      "credit card", "card number", "payment", "personal data", "pii",
+      "personally identifiable", "sensitive", "sensitive information",
+      "email", "ssn", "social security", "date of birth", "address",
+      "phone number", "encrypt", "encryption", "encrypted", "decrypt",
+      "gdpr", "privacy", "mask", "masked", "redact", "redacted",
+      "confidential",
+    ],
+  },
+  {
+    category: "Session Management",
+    keywords: [
+      "session", "sessions", "token", "access token", "refresh token",
+      "logged in", "log out", "logout", "sign out", "signout",
+      "timeout", "time out", "expire", "expiry", "expires", "expiration",
+      "cookie", "cookies", "jwt", "idle", "inactivity", "auto logout",
+      "remember me",
+    ],
+  },
+  {
+    category: "Error Handling & Logging",
+    keywords: [
+      "error", "errors", "invalid", "error message", "exception",
+      "log", "logs", "logging", "log file", "audit log", "audit trail",
+      "stack trace", "debug", "debug info", "crash", "fail", "failure",
+      "alert", "warning", "traceback",
+    ],
+  },
+  {
+    category: "API / Interface Security",
+    keywords: [
+      "api", "apis", "endpoint", "endpoints", "returns a list", "request",
+      "requests", "response", "rest api", "graphql", "webhook", "webhooks",
+      "integration", "rate limit", "rate limiting", "throttle", "throttling",
+      "third-party", "third party", "external service", "external api",
+    ],
+  },
+  {
+    category: "Configuration & Deployment Security",
+    keywords: [
+      "config", "configuration", "connection details", "connection string",
+      "api key", "api keys", "default", "default password", "default credentials",
+      "environment variable", "env variable", ".env", "secret", "secrets",
+      "deployment", "deploy", "docker", "kubernetes", "credentials file",
+      "hardcoded", "plaintext",
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -209,22 +285,90 @@ function parseRequirements(rawText) {
 
 // ---------------------------------------------------------------------------
 // 7. DETECT MATCHING CATEGORIES FOR A SINGLE REQUIREMENT LINE
+//    Exact keyword matching is brittle: a real requirements author has no
+//    way of knowing the exact words this script listens for. To make
+//    detection realistic without needing an external API, this combines
+//    three things:
+//      1. A wide synonym list per category (see KEYWORD_RULES above)
+//      2. Light stemming, so "logging in" / "logged in" / "log in" /
+//         "login" all normalize to the same root
+//      3. Fuzzy (typo-tolerant) matching, so small misspellings like
+//         "loging in" or "passwrod" still match
+//    Multi-word keywords ("credit card", "rate limit") match if every word
+//    in the phrase is found somewhere in the requirement - not necessarily
+//    adjacent - since real sentences rarely repeat a phrase verbatim.
 // ---------------------------------------------------------------------------
-function escapeRegExp(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Light stemmer: strips common English suffixes so word forms collapse to
+// roughly the same root. Deliberately conservative - only trims on longer
+// words, and never trims down to fewer than 4 characters - because an
+// over-eager trim can accidentally collapse an unrelated word (e.g. a
+// misspelling of "login") down to a short root that coincidentally matches
+// a different category's keyword (e.g. "log").
+function stem(word) {
+  const w = word.toLowerCase();
+  const candidates = [];
+  if (w.length > 6 && w.endsWith("ing")) candidates.push(w.slice(0, -3));
+  if (w.length > 6 && w.endsWith("ed")) candidates.push(w.slice(0, -2));
+  if (w.length > 6 && w.endsWith("ies")) candidates.push(w.slice(0, -3) + "y");
+  if (w.length > 5 && w.endsWith("es")) candidates.push(w.slice(0, -2));
+  if (w.length > 5 && w.endsWith("s") && !w.endsWith("ss")) candidates.push(w.slice(0, -1));
+  const best = candidates.find((c) => c.length >= 4);
+  return best || w;
 }
 
-function containsKeyword(text, keyword) {
-  // \b word-boundary match so short keywords (e.g. "log") don't match
-  // inside unrelated words (e.g. "login"). Works for multi-word phrases too.
-  const pattern = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
-  return pattern.test(text);
+function tokenize(text) {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9']+/i)
+    .filter((w) => w.length > 0)
+    .map(stem);
+}
+
+// Standard Levenshtein edit distance, used only for typo tolerance on
+// longer words (see fuzzyWordMatch) - capped comparisons keep this cheap
+// since requirement lines and keywords are both short.
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+  return dp[m][n];
+}
+
+function fuzzyWordMatch(tokenWord, keywordWord) {
+  if (tokenWord === keywordWord) return true;
+  // Only tolerate typos on longer words - short words (e.g. "api", "pin")
+  // are too easy to accidentally confuse with unrelated short words.
+  if (keywordWord.length < 5) return false;
+  const maxDistance = keywordWord.length >= 8 ? 2 : 1;
+  return levenshtein(tokenWord, keywordWord) <= maxDistance;
+}
+
+function containsKeyword(requirementTokens, keyword) {
+  const keywordTokens = tokenize(keyword);
+  if (keywordTokens.length === 0) return false;
+  // Every word in the keyword phrase must fuzzy-match some word in the
+  // requirement, in any order - catches reordered/rephrased requirements
+  // ("only staff can access" vs "access restricted to staff") without
+  // requiring the exact phrase to appear verbatim.
+  return keywordTokens.every((kw) =>
+    requirementTokens.some((tok) => fuzzyWordMatch(tok, kw))
+  );
 }
 
 function detectCategories(requirementLine) {
+  const requirementTokens = tokenize(requirementLine);
   const matched = [];
   for (const rule of KEYWORD_RULES) {
-    const hit = rule.keywords.some((kw) => containsKeyword(requirementLine, kw));
+    const hit = rule.keywords.some((kw) => containsKeyword(requirementTokens, kw));
     if (hit) matched.push(rule.category);
   }
   return matched;
