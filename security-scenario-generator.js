@@ -26,6 +26,8 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const mammoth = require("mammoth");
+const pdfParse = require("pdf-parse");
 
 // ---------------------------------------------------------------------------
 // 1. FIXED SECURITY CATEGORY TAXONOMY
@@ -764,7 +766,7 @@ function buildOutputBaseName(sourceFileName) {
 // ---------------------------------------------------------------------------
 // 13. ENTRY POINT
 // ---------------------------------------------------------------------------
-function main() {
+async function main() {
   const inputPath = process.argv[2];
   if (!inputPath) {
     console.error("Usage: node security-scenario-generator.js <path-to-requirements.txt>");
@@ -772,7 +774,7 @@ function main() {
   }
 
   const resolvedPath = path.resolve(inputPath);
-  const rawText = fs.readFileSync(resolvedPath, "utf-8");
+  const rawText = await readRequirementsFile(resolvedPath);
   const sourceFileName = path.basename(resolvedPath);
 
   if (!fs.existsSync(REPORTS_DIR)) {
@@ -813,6 +815,35 @@ function main() {
   console.log(`Generated ${scenarios.length} scenario(s) across ${coveredCount}/${CATEGORIES.length} categories.`);
   console.log(`- ${mdPath}   (plain text)`);
   console.log(`- ${htmlPath} (open this one in a browser)`);
+}
+async function readRequirementsFile(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+
+  // TXT / Markdown
+  if (extension === ".txt" || extension === ".md") {
+    return fs.readFileSync(filePath, "utf-8");
+  }
+
+  // Word document
+  if (extension === ".docx") {
+    const result = await mammoth.extractRawText({
+      path: filePath
+    });
+
+    return result.value;
+  }
+
+  // PDF
+  if (extension === ".pdf") {
+    const buffer = fs.readFileSync(filePath);
+    const result = await pdfParse(buffer);
+
+    return result.text;
+  }
+
+  throw new Error(
+    `Unsupported file type: ${extension}. Supported formats are .txt, .md, .docx and .pdf.`
+  );
 }
 
 main();
