@@ -1,0 +1,19 @@
+The application should allow users to login using a username and password.
+
+Users should be able to create an account with their name, email, and password.
+
+Users should only be able to view their own profile information.
+
+Users should be able to change their password.
+
+The application should validate user input before processing it.
+
+The application should provide an API to retrieve user profile information.
+
+User sessions should expire after a period of inactivity.
+
+The application should not display sensitive information such as passwords in error messages.
+
+The application should store user passwords securely.
+
+Only administrators should be able to access the admin dashboard.

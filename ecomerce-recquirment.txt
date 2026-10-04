@@ -1,0 +1,10 @@
+Project: Online Store Checkout
+
+1. Customers should be able to sign in with an email and password before checking out.
+2. Only staff accounts should be able to view the order management dashboard.
+3. The checkout form should validate the shipping address and coupon code fields before submitting.
+4. Customers should be able to save a credit card and email address to their profile.
+5. A customer's login session should time out after 20 minutes of inactivity.
+6. If a payment fails, the error shown to the customer should not reveal internal transaction details.
+7. The store should expose an API endpoint that returns a list of a customer's past orders.
+8. The application should read its database connection details from a configuration file at startup.

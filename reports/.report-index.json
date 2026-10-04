@@ -1,0 +1,14 @@
+{
+  "requirements.txt": {
+    "hash": "51d539b899c9fc290200d26e9cbd8f0e898c71798022bef9b4feaa0a295eb5f4",
+    "mdPath": "reports\\requirements_2026-10-04_19-00-49.md",
+    "htmlPath": "reports\\requirements_2026-10-04_19-00-49.html",
+    "generatedAt": "2026-10-04T13:30:49.794Z"
+  },
+  "ecomerce-recquirment.txt": {
+    "hash": "a556a6fc57d4f4d6635324c7ea8cbfac06988ed3ca24983ba612fcbc9c360c10",
+    "mdPath": "reports\\ecomerce-recquirment_2026-10-04_19-17-33.md",
+    "htmlPath": "reports\\ecomerce-recquirment_2026-10-04_19-17-33.html",
+    "generatedAt": "2026-10-04T13:47:33.019Z"
+  }
+}
