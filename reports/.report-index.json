@@ -1,26 +1,8 @@
 {
-  "requirements.txt": {
-    "hash": "6d403e12fb686d4cf2a7db54538d7f5723dd03a3e7dafd85a31498281482cd48",
-    "mdPath": "reports\\requirements_2026-10-04_23-00-23.md",
-    "htmlPath": "reports\\requirements_2026-10-04_23-00-23.html",
-    "generatedAt": "2026-10-04T17:30:23.122Z"
-  },
-  "ecomerce-recquirment.txt": {
-    "hash": "261a62f7633374fcdbafbf28e83d40354d72611e29c7d64d7ec172e1c922915e",
-    "mdPath": "reports\\ecomerce-recquirment_2026-10-04_23-00-42.md",
-    "htmlPath": "reports\\ecomerce-recquirment_2026-10-04_23-00-42.html",
-    "generatedAt": "2026-10-04T17:30:42.999Z"
-  },
-  "re-1791137071696.docx": {
+  "re-1791139201089.docx": {
     "hash": "97a63fc0938519777594b0f9790ec771c5cd50b7b61c07da2d36d2121bae8348",
-    "mdPath": "reports\\re-1791137071696_2026-10-04_23-34-32.md",
-    "htmlPath": "reports\\re-1791137071696_2026-10-04_23-34-32.html",
-    "generatedAt": "2026-10-04T18:04:32.734Z"
-  },
-  "Project-1791137302121.pdf": {
-    "hash": "7df8ac3bcd4b1d30f76077f464206e52678ebbd9b4de06a2b2b47201f7d4c559",
-    "mdPath": "reports\\project-1791137302121_2026-10-04_23-38-25.md",
-    "htmlPath": "reports\\project-1791137302121_2026-10-04_23-38-25.html",
-    "generatedAt": "2026-10-04T18:08:25.732Z"
+    "mdPath": "reports\\re-1791139201089_2026-10-05_00-10-02.md",
+    "htmlPath": "reports\\re-1791139201089_2026-10-05_00-10-02.html",
+    "generatedAt": "2026-10-04T18:40:02.197Z"
   }
 }
