@@ -45,14 +45,23 @@ const storage = multer.diskStorage({
 
   filename: function (req, file, cb) {
 
-    // Keep the original filename because the generator
-    // uses the source filename when creating reports.
+    const extension =
+      path.extname(file.originalname);
 
-    cb(null, file.originalname);
+    const baseName =
+      path.basename(
+        file.originalname,
+        extension
+      )
+        .replace(/[^a-zA-Z0-9-_]/g, "_");
+
+    const uniqueName =
+      `${baseName}-${Date.now()}${extension}`;
+
+    cb(null, uniqueName);
   }
 
 });
-
 
 const allowedExtensions = [
   ".txt",
